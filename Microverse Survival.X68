@@ -128,55 +128,55 @@ BAD_IN:
 ;-------------------------------------------------------
 RESOURCE_UPDATE:
         CLR.L D2
-        MOVE.B POTIONS,D2    ; ????? ???? ?????? (1-9)
+        MOVE.B POTIONS,D2    ; Amount chosen by the player (1-9)
         
-        ; ??????? ?????? ??????????????? ?????
+        ; Reduce energy based on chosen activity
         SUB.B D2,ENERGY
         BCC .EN_OK
         CLR.B ENERGY
-        SUB.B #5,HEALTH      ; ????? ?? ?????????????
+        SUB.B #5,HEALTH      ; Penalty for low energy
 .EN_OK:
 
-        ; ??? ????????????? (????? ?? ???????), ?? ???????? ?? ??????????
-        ADD.B D2,FOOD        ; ????????? ??? ?? ???????
-        SUB.B #5,FOOD        ; ????? ???????? ????? (5)
+        ; Starvation penalty (food < 5)
+        ADD.B D2,FOOD        ; Add food depending on activity
+        SUB.B #5,FOOD        ; Food consumption after activity
         BCC .FD_OK
         CLR.B FOOD
         LEA STARVE_MSG,A1
         MOVE.B #PRINT_STR,D0
         TRAP #15
-        SUB.B #10,HEALTH
+        SUB.B #10,HEALTH     ; Starving penalty
 .FD_OK:
 
-        ; ???????? ?? ?????? (???? ???????? 0 ??? ??????) ??? ?????? Story
+        ; Check for game over when health reaches zero
         TST.B HEALTH
-        BEQ GAME_OVER        ; ???? ?????????????, ???? ???????? = 0
+        BEQ GAME_OVER        ; Game over if health reaches 0
 
-        ; ???? ????? "Endless", ?????????? ????
-        CMP.B #0,MODE        ; ?????????, ???? ??? ????? Story (0)
-        BEQ .CHECK_DEATH     ; ?????? ???? ??? ????? Story, ????????? ??????
+        ; Check for Story mode (mode 0) and enforce story mode day limit
+        CMP.B #0,MODE        ; Check if it's Story mode
+        BEQ .CHECK_DEATH     ; If Story mode, check for game over
+
         RTS
 
 .CHECK_DEATH:
         TST.B HEALTH
-        BEQ GAME_OVER        ; ???? ?????????????, ???? ???????? = 0
+        BEQ GAME_OVER        ; If health is 0, game over
         RTS
         
 .HEALTH_OK:
         RTS
 
 .LOW_FOOD:
-        CMP.B #10,FOOD      ; Если еды меньше 10
-        BGE .FD_OK_LOW      ; Пищи достаточно, пропускаем
+        CMP.B #10,FOOD      ; If food is less than 10
+        BGE .FD_OK_LOW      ; Enough food, continue
         LEA STARVE_MSG,A1
         MOVE.B #PRINT_STR,D0
         TRAP #15
-        SUB.B #15,HEALTH    ; Штраф за голод
+        SUB.B #15,HEALTH    ; Penalty for starvation
         BCC .FD_OK_LOW
 
 .FD_OK_LOW:
         RTS
-
 ;-------------------------------------------------------
 ; EVENTS (Добавляем дополнительные события)
 ;-------------------------------------------------------
@@ -220,14 +220,15 @@ RARE_RESOURCE:
 ; STATUS & HUD
 ;-------------------------------------------------------
 CHECK_STATUS:
-        ADD.B #1,DAY_COUNT
-        TST.B HEALTH
-        BEQ GAME_OVER    ; Игра заканчивается, если здоровье = 0
+        ADD.B #1,DAY_COUNT           ; Increment the day count each time
+        TST.B HEALTH                  ; Check if health is 0
+        BEQ GAME_OVER                 ; If health is 0, the game is over
 
-        CMP.B #0,MODE
-        BNE .RET
-        CMP.B #15,DAY_COUNT
-        BGE STORY_WIN
+        CMP.B #0,MODE                 ; Check if we are in Story mode (mode 0)
+        BNE .RET                       ; If not in Story mode, skip the next check
+        CMP.B #15,DAY_COUNT           ; If 15 days have passed in Story mode
+        BGE STORY_WIN                  ; If day count is greater than or equal to 15, player wins Story
+
 .RET:
         RTS
 
@@ -244,14 +245,6 @@ HUD:
 
         BSR ENDL
         
-        LEA HEALTH_MSG,A1
-        MOVE.B #PRINT_STR,D0
-        TRAP #15
-        CLR.L D1
-        MOVE.B HEALTH,D1
-        MOVE.B #PRINT_NUM,D0
-        TRAP #15
-
         LEA FOOD_MSG,A1
         MOVE.B #PRINT_STR,D0
         TRAP #15
@@ -267,6 +260,18 @@ HUD:
         MOVE.B ENERGY,D1
         MOVE.B #PRINT_NUM,D0
         TRAP #15
+
+        ; Only print health if it's greater than 0
+        TST.B HEALTH
+        BEQ .NO_HEALTH_PRINT
+        LEA HEALTH_MSG,A1
+        MOVE.B #PRINT_STR,D0
+        TRAP #15
+        CLR.L D1
+        MOVE.B HEALTH,D1
+        MOVE.B #PRINT_NUM,D0
+        TRAP #15
+.NO_HEALTH_PRINT:
         BSR ENDL
         MOVEM.L (A7)+,D0-D1/A1
         RTS
@@ -322,21 +327,21 @@ STORY_WIN:
         MOVE.B #PRINT_STR,D0
         TRAP #15
         
-        BSR ENDL  ; Add new line before the prompt
+        BSR ENDL                  ; Newline before the prompt
         LEA PLAY_AGAIN_MSG,A1
         MOVE.B #PRINT_STR,D0
         TRAP #15
 
-        MOVE.B #5,D0                   ; Task 5: Get input
-        TRAP #15                       ; Read key press into D1
-        ANDI.B #$DF,D1                 ; Convert lowercase to uppercase
-        CMP.B #'Y',D1                  ; Compare with 'Y'
+        MOVE.B #5,D0              ; Task 5: Get input
+        TRAP #15                   ; Read input into D1
+        ANDI.B #$DF,D1             ; Convert lowercase to uppercase
+        CMP.B #'Y',D1              ; Compare with 'Y'
         BEQ RESTART_GAME
 
-        CMP.B #'N',D1                  
+        CMP.B #'N',D1              ; Compare with 'N'
         BEQ EXIT_GAME
         
-        BRA STORY_WIN                  ; If not Y or N, prompt again
+        BRA STORY_WIN              ; If not Y or N, prompt again
 
 ENDL:
         MOVEM.L D0/A1,-(A7)
@@ -345,7 +350,6 @@ ENDL:
         TRAP #15
         MOVEM.L (A7)+,D0/A1
         RTS
-
 
 ;-------------------------------------------------------
 ; DATA
@@ -382,6 +386,7 @@ POTIONS:    DS.B 1
 
 
         END START
+
 
 
 
