@@ -38,10 +38,11 @@ INTRO_SCREEN:
         TRAP #15
         BSR ENDL
 
-        ; Ожидаем нажатие **любой клавиши**
-        MOVE.B #READ_NUM,D0        ; Ожидание ввода символа
-        TRAP #15                   ; Получаем символ с клавиатуры
-        RTS                        ; Возвращаемся в основное выполнение программы
+        ; ??? "Press Enter" ????? ???????????? ?????? ?????? ??? ???????
+        MOVE.B #5,D0               ; ??????? ???? ?????? (Task 5)
+        TRAP #15                   ; ???? ??????? ???????
+        RTS
+
 
 ;-------------------------------------------------------
 ; INITIALISE
@@ -57,10 +58,11 @@ INIT:
 ; WELCOME & MODE
 ;-------------------------------------------------------
 WELCOME:
+        BSR ENDL             ; Add a newline before the welcome message
         LEA WELCOME_MSG,A1
         MOVE.B #PRINT_STR,D0
         TRAP #15
-        BSR ENDL
+        BSR ENDL             ; Add another newline after the message (optional)
         RTS
 
 SELECT_MODE:
@@ -69,20 +71,34 @@ SELECT_MODE:
         TRAP #15
 
 READ_M:
-        MOVE.B #READ_NUM,D0
-        TRAP #15
-        CMP.L #0,D1
-        BLT INVALID_INPUT   ; Если меньше 0, ошибка
-        CMP.L #1,D1
-        BGT INVALID_INPUT   ; Если больше 1, ошибка
-        MOVE.B D1,MODE      ; Сохраняем режим игры
-        RTS
+        CLR.B D1                    ; Clear D1 before reading the input
+        MOVE.B #READ_NUM,D0         ; Request input
+        TRAP #15                    ; Read input into D1
 
+        ; Check if the input is valid (either 0 or 1)
+        CMP.B #0,D1                 ; Compare input with 0
+        BEQ VALID_INPUT        
+        CMP.B #1,D1                 ; Compare input with 1
+        BEQ VALID_INPUT        
+
+        ; If the input is invalid, print an error message
+        LEA INVALID_MODE_MSG,A1
+        MOVE.B #PRINT_STR,D0
+        TRAP #15
+        
+        ; Ask the user for valid input again
+        BRA READ_M                  ; Loop until valid input (0 or 1)
+
+VALID_INPUT:
+        MOVE.B D1,MODE              ; Store the selected mode (0 or 1)
+        RTS
+        
 INVALID_INPUT:
         LEA INVALID_MODE_MSG,A1
         MOVE.B #PRINT_STR,D0
         TRAP #15
-        BRA READ_M          ; Повторный ввод
+        BRA READ_M               ; Повторный ввод, если не '0' и не '1'
+
 
 ;-------------------------------------------------------
 ; INPUT (Выбор интенсивности дня)
@@ -112,18 +128,18 @@ BAD_IN:
 ;-------------------------------------------------------
 RESOURCE_UPDATE:
         CLR.L D2
-        MOVE.B POTIONS,D2    ; Берем ввод игрока (1-9)
+        MOVE.B POTIONS,D2    ; ????? ???? ?????? (1-9)
         
-        ; Энергия падает пропорционально вводу
+        ; ??????? ?????? ??????????????? ?????
         SUB.B D2,ENERGY
         BCC .EN_OK
         CLR.B ENERGY
-        SUB.B #5,HEALTH      ; Штраф за переутомление
+        SUB.B #5,HEALTH      ; ????? ?? ?????????????
 .EN_OK:
 
-        ; Еда увеличивается (нашли на вылазке), но тратится на метаболизм
-        ADD.B D2,FOOD        ; Прибавили еду от вылазки
-        SUB.B #5,FOOD        ; Вычли суточную норму (5)
+        ; ??? ????????????? (????? ?? ???????), ?? ???????? ?? ??????????
+        ADD.B D2,FOOD        ; ????????? ??? ?? ???????
+        SUB.B #5,FOOD        ; ????? ???????? ????? (5)
         BCC .FD_OK
         CLR.B FOOD
         LEA STARVE_MSG,A1
@@ -132,11 +148,20 @@ RESOURCE_UPDATE:
         SUB.B #10,HEALTH
 .FD_OK:
 
-        ; Проверка на смерть (если здоровье 0 или меньше)
+        ; ???????? ?? ?????? (???? ???????? 0 ??? ??????) ??? ?????? Story
         TST.B HEALTH
-        BEQ GAME_OVER    ; Игра заканчивается, если здоровье = 0
+        BEQ GAME_OVER        ; ???? ?????????????, ???? ???????? = 0
 
+        ; ???? ????? "Endless", ?????????? ????
+        CMP.B #0,MODE        ; ?????????, ???? ??? ????? Story (0)
+        BEQ .CHECK_DEATH     ; ?????? ???? ??? ????? Story, ????????? ??????
         RTS
+
+.CHECK_DEATH:
+        TST.B HEALTH
+        BEQ GAME_OVER        ; ???? ?????????????, ???? ???????? = 0
+        RTS
+        
 .HEALTH_OK:
         RTS
 
@@ -218,6 +243,7 @@ HUD:
         TRAP #15
 
         BSR ENDL
+        
         LEA HEALTH_MSG,A1
         MOVE.B #PRINT_STR,D0
         TRAP #15
@@ -252,11 +278,11 @@ HUD:
 ; SYSTEM
 ;-------------------------------------------------------
 GAME_OVER:
+        ; --- New part of GAME_OVER for debugging ---
         LEA GAME_OVER_MSG,A1
         MOVE.B #PRINT_STR,D0
         TRAP #15
-        
-        ; Выводим количество выжитых дней
+
         LEA DAYS_SURVIVED_MSG,A1
         MOVE.B #PRINT_STR,D0
         TRAP #15
@@ -265,41 +291,52 @@ GAME_OVER:
         MOVE.B #PRINT_NUM,D0
         TRAP #15
         
-        ; Запрос на продолжение игры
+        BSR ENDL  ; Add new line before the prompt
         LEA PLAY_AGAIN_MSG,A1
         MOVE.B #PRINT_STR,D0
         TRAP #15
 
-        ; Ожидаем ввода
-        MOVE.B #READ_NUM,D0
-        TRAP #15
-        
-        CMP.B #'Y',D1      ; Если 'Y' - игра продолжается
+        MOVE.B #5,D0                   ; Task 5: Get input
+        TRAP #15                       ; Read key press into D1
+        ANDI.B #$DF,D1                 ; Convert lowercase to uppercase
+        CMP.B #'Y',D1                  ; Compare with 'Y'
         BEQ RESTART_GAME
-        CMP.B #'N',D1      ; Если 'N' - выходим
+
+        CMP.B #'N',D1                  
         BEQ EXIT_GAME
         
-        ; Если введен не 'Y' и не 'N', запрашиваем повторно
-        BRA GAME_OVER
-
+        BRA GAME_OVER                  ; If not Y or N, prompt again
 RESTART_GAME:
-        ; Сбросим все данные и начнем заново
         BSR INIT
-        BSR WELCOME
-        BSR SELECT_MODE
-        BRA MAIN_LOOP
+        BSR ENDL             ; Ensure there's a newline before the welcome message
+        BSR WELCOME          ; Print welcome message
+        BSR SELECT_MODE      ; Prompt for mode selection (0 or 1)
+        BRA MAIN_LOOP        ; Start the main loop
 
 EXIT_GAME:
         MOVE.B #STOP,D0
         TRAP #15
 
-
 STORY_WIN:
         LEA STORY_WIN_MSG,A1
         MOVE.B #PRINT_STR,D0
         TRAP #15
-        MOVE.B #STOP,D0
+        
+        BSR ENDL  ; Add new line before the prompt
+        LEA PLAY_AGAIN_MSG,A1
+        MOVE.B #PRINT_STR,D0
         TRAP #15
+
+        MOVE.B #5,D0                   ; Task 5: Get input
+        TRAP #15                       ; Read key press into D1
+        ANDI.B #$DF,D1                 ; Convert lowercase to uppercase
+        CMP.B #'Y',D1                  ; Compare with 'Y'
+        BEQ RESTART_GAME
+
+        CMP.B #'N',D1                  
+        BEQ EXIT_GAME
+        
+        BRA STORY_WIN                  ; If not Y or N, prompt again
 
 ENDL:
         MOVEM.L D0/A1,-(A7)
@@ -317,7 +354,7 @@ CRLF:           DC.B $0D,$0A,0
 INTRO_MSG:      DC.B '********************************************',0
                 DC.B '***  Welcome to MICROVERSE SURVIVAL!  ***',0
                 DC.B '********************************************',0
-PRESS_KEY_MSG:  DC.B 'Press ENTER to start...',0
+PRESS_KEY_MSG:  DC.B 'Press any key to start...',0
 WELCOME_MSG:    DC.B '=== MICROVERSE SURVIVAL ===',0
 MODE_MSG:       DC.B '0:Story (15 days), 1:Endless. Choice: ',0
 POTION_MSG:     DC.B 'Choose activity level (1=Rest, 9=Hunt): ',0
@@ -336,12 +373,16 @@ STORY_WIN_MSG:  DC.B $0D,$0A,'*** VICTORY! YOU SURVIVED! ***',0
 DAYS_SURVIVED_MSG: DC.B 'Days survived: ',0
 PLAY_AGAIN_MSG: DC.B 'Do you want to play again? (Y/N): ',0
 
-HEALTH:      DS.B 1
-ENERGY:      DS.B 1
-FOOD:        DS.B 1
-DAY_COUNT:   DS.B 1
-MODE:        DS.B 1
-POTIONS:     DS.B 1
+HEALTH:     DS.B 1
+ENERGY:     DS.B 1
+FOOD:       DS.B 1
+DAY_COUNT:  DS.B 1
+MODE:       DS.B 1
+POTIONS:    DS.B 1
+
 
         END START
+
+
+
 
