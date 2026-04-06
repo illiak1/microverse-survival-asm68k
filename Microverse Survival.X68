@@ -1,5 +1,5 @@
 ;-------------------------------------------------------
-; Project: Microverse Survival
+; Project: Microverse Survival (REBALANCED)
 ;-------------------------------------------------------
 
         ORG $1000
@@ -29,7 +29,7 @@ INIT:
         MOVE.B #100,HEALTH
         MOVE.B #50,ENERGY
         MOVE.B #20,FOOD
-        MOVE.B #1,DAY_COUNT    
+        MOVE.B #0,DAY_COUNT
         RTS
 
 ;-------------------------------------------------------
@@ -46,25 +46,18 @@ SELECT_MODE:
         LEA MODE_MSG,A1
         MOVE.B #PRINT_STR,D0
         TRAP #15
-
 READ_M:
         MOVE.B #READ_NUM,D0
         TRAP #15
         CMP.L #0,D1
-        BLT INVALID_INPUT 
+        BLT READ_M
         CMP.L #1,D1
-        BGT INVALID_INPUT   
-        MOVE.B D1,MODE     
+        BGT READ_M
+        MOVE.B D1,MODE
         RTS
 
-INVALID_INPUT:
-        LEA INVALID_MODE_MSG,A1
-        MOVE.B #PRINT_STR,D0
-        TRAP #15
-        BRA READ_M          
-
 ;-------------------------------------------------------
-; INPUT 
+; INPUT (Выбор интенсивности дня)
 ;-------------------------------------------------------
 INPUT:
         BSR ENDL
@@ -78,7 +71,7 @@ READ_P:
         BLT BAD_IN
         CMP.L #9,D1
         BGT BAD_IN
-        MOVE.B D1,POTIONS    
+        MOVE.B D1,POTIONS    ; Сохраняем выбор игрока
         RTS
 BAD_IN:
         LEA INVALID_MSG,A1
@@ -87,70 +80,46 @@ BAD_IN:
         BRA READ_P
 
 ;-------------------------------------------------------
-; RESOURCE UPDATE 
-;-------------------------------------------------------
-;-------------------------------------------------------
-; RESOURCE UPDATE
+; RESOURCE UPDATE (Логика выживания)
 ;-------------------------------------------------------
 RESOURCE_UPDATE:
+        ; 1. Трата ресурсов на основе выбора игрока (POTIONS)
         CLR.L D2
-        MOVE.B POTIONS,D2    
+        MOVE.B POTIONS,D2    ; Берем ввод игрока (1-9)
         
-     
+        ; Энергия падает пропорционально вводу
         SUB.B D2,ENERGY
         BCC .EN_OK
         CLR.B ENERGY
-        SUB.B #5,HEALTH      
+        SUB.B #5,HEALTH      ; Штраф за переутомление
 .EN_OK:
 
-        
-        ADD.B D2,FOOD        
-        SUB.B #5,FOOD        
+        ; Еда увеличивается (нашли на вылазке), но тратится на метаболизм
+        ADD.B D2,FOOD        ; Прибавили еду от вылазки
+        SUB.B #5,FOOD        ; Вычли суточную норму (5)
         BCC .FD_OK
         CLR.B FOOD
-       
+        ; Если еда кончилась - ШТРАФ ГОЛОДА
         LEA STARVE_MSG,A1
         MOVE.B #PRINT_STR,D0
         TRAP #15
         SUB.B #10,HEALTH
 .FD_OK:
-
-       
-        TST.B HEALTH
-        BEQ GAME_OVER   
-
-        RTS
-.HEALTH_OK:
-        RTS
-
-.LOW_FOOD:
-        CMP.B #10,FOOD      
-        BGE .FD_OK_LOW      
         
-        LEA STARVE_MSG,A1
-        MOVE.B #PRINT_STR,D0
-        TRAP #15
-        SUB.B #15,HEALTH    
-        BCC .FD_OK_LOW
-
-.FD_OK_LOW:
+        ; Финальная проверка на смерть (чтобы не было 246)
+        BCC .DONE
+        CLR.B HEALTH
+.DONE:
         RTS
+
 ;-------------------------------------------------------
-; EVENTS 
+; EVENTS
 ;-------------------------------------------------------
 WORLD_EVENT:
         MOVE.B #8,D0
         TRAP #15
-        ANDI.L #%111,D1     
-        CMP.L #0,D1
-        BEQ DROUGHT
-        CMP.L #1,D1
-        BEQ BASE_ATTACK
-        CMP.L #2,D1
-        BEQ RARE_RESOURCE
-        RTS
-
-DROUGHT:
+        ANDI.L #%11,D1       ; Шанс засухи 25% (если D1=0)
+        BNE .SKIP
         LEA DROUGHT_MSG,A1
         MOVE.B #PRINT_STR,D0
         TRAP #15
@@ -160,31 +129,14 @@ DROUGHT:
 .SKIP:
         RTS
 
-BASE_ATTACK:
-        LEA BASE_ATTACK_MSG,A1
-        MOVE.B #PRINT_STR,D0
-        TRAP #15
-        SUB.B #15,HEALTH  
-        RTS
-
-RARE_RESOURCE:
-        LEA RARE_RESOURCE_MSG,A1
-        MOVE.B #PRINT_STR,D0
-        TRAP #15
-        ADD.B #10,FOOD    
-        RTS
-
-;-------------------------------------------------------
-; STATUS & HUD
-;-------------------------------------------------------
 ;-------------------------------------------------------
 ; STATUS & HUD
 ;-------------------------------------------------------
 CHECK_STATUS:
         ADD.B #1,DAY_COUNT
         TST.B HEALTH
-        BEQ GAME_OVER    
-
+        BEQ GAME_OVER
+        
         CMP.B #0,MODE
         BNE .RET
         CMP.B #15,DAY_COUNT
@@ -238,16 +190,6 @@ GAME_OVER:
         LEA GAME_OVER_MSG,A1
         MOVE.B #PRINT_STR,D0
         TRAP #15
-        
-        
-        LEA DAYS_SURVIVED_MSG,A1
-        MOVE.B #PRINT_STR,D0
-        TRAP #15
-        CLR.L D1
-        MOVE.B DAY_COUNT,D1
-        MOVE.B #PRINT_NUM,D0
-        TRAP #15
-        
         MOVE.B #STOP,D0
         TRAP #15
 
@@ -274,18 +216,14 @@ WELCOME_MSG:    DC.B '=== MICROVERSE SURVIVAL ===',0
 MODE_MSG:       DC.B '0:Story (15 days), 1:Endless. Choice: ',0
 POTION_MSG:     DC.B 'Choose activity level (1=Rest, 9=Hunt): ',0
 INVALID_MSG:    DC.B 'Bad input! (1-9 only)',0
-INVALID_MODE_MSG: DC.B 'Invalid mode! Please enter 0 for Story or 1 for Endless: ',0
 DROUGHT_MSG:    DC.B '>>> EVENT: DROUGHT! Food lost.',0
 STARVE_MSG:     DC.B '>>> ALERT: STARVING! HP drops.',0
-BASE_ATTACK_MSG: DC.B '>>> ALERT: Your base is under attack!',0
-RARE_RESOURCE_MSG: DC.B '>>> YOU FOUND RARE RESOURCES! +10 FOOD',0
 HEALTH_MSG:     DC.B ' HEALTH: ',0
 FOOD_MSG:       DC.B ' | FOOD: ',0
 ENERGY_MSG:     DC.B ' | ENERGY: ',0
 DAY_MSG:        DC.B '--- DAY ',0
-GAME_OVER_MSG:  DC.B $0D,$0A,'*** YOU PERISHED. GAME OVER :(  ***',0
+GAME_OVER_MSG:  DC.B $0D,$0A,'*** YOU PERISHED ***',0
 STORY_WIN_MSG:  DC.B $0D,$0A,'*** VICTORY! YOU SURVIVED! ***',0
-DAYS_SURVIVED_MSG: DC.B 'Days survived: ',0
 
         
 HEALTH:      DS.B 1
@@ -296,6 +234,4 @@ MODE:        DS.B 1
 POTIONS:     DS.B 1
 
         END START
-
-
 
