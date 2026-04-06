@@ -26,7 +26,7 @@ MAIN_LOOP:
 ; INITIALISE
 ;-------------------------------------------------------
 INIT:
-        MOVE.B #100,HEALTH
+        MOVE.B #150,HEALTH      ; Устанавливаем здоровье равным 150
         MOVE.B #50,ENERGY
         MOVE.B #20,FOOD
         MOVE.B #0,DAY_COUNT
@@ -106,10 +106,17 @@ RESOURCE_UPDATE:
         SUB.B #10,HEALTH
 .FD_OK:
         
-        ; Финальная проверка на смерть (чтобы не было 246)
-        BCC .DONE
-        CLR.B HEALTH
-.DONE:
+        ; Проверка на смерть
+        CMP.B #0,HEALTH
+        BLE .CHECK_GAME_OVER        ; Если здоровье 0 или ниже - конец игры
+        RTS
+
+.CHECK_GAME_OVER:
+        CMP.B #1,MODE            ; Если это Endless Mode
+        BEQ .ENDLESS_MODE        ; Не завершаем игру в Endless Mode, если здоровье 0
+        JMP GAME_OVER            ; Для режима Story игра заканчивается
+.ENDLESS_MODE:
+        MOVE.B #150,HEALTH       ; В Endless Mode восстанавливаем здоровье
         RTS
 
 ;-------------------------------------------------------
@@ -135,13 +142,23 @@ WORLD_EVENT:
 CHECK_STATUS:
         ADD.B #1,DAY_COUNT
         TST.B HEALTH
-        BEQ GAME_OVER
-        
+        BEQ .CHECK_GAME_OVER
+
         CMP.B #0,MODE
-        BNE .RET
+        BEQ .STORY_CHECK
+        RTS
+
+.STORY_CHECK:
         CMP.B #15,DAY_COUNT
         BGE STORY_WIN
-.RET:
+        RTS
+
+.CHECK_GAME_OVER:
+        CMP.B #1,MODE            ; Если это Endless Mode
+        BEQ .ENDLESS_MODE        ; Не завершаем игру в Endless Mode, если здоровье 0
+        JMP GAME_OVER            ; Для режима Story игра заканчивается
+.ENDLESS_MODE:
+        MOVE.B #150,HEALTH       ; В Endless Mode восстанавливаем здоровье
         RTS
 
 HUD:
@@ -234,4 +251,3 @@ MODE:        DS.B 1
 POTIONS:     DS.B 1
 
         END START
-
