@@ -11,6 +11,7 @@ STOP        EQU 9
 
 START:
         BSR INIT
+        BSR INTRO_SCREEN       ; Вступительный экран
         BSR WELCOME
         BSR SELECT_MODE
         
@@ -22,14 +23,34 @@ MAIN_LOOP:
         BSR CHECK_STATUS
         BRA MAIN_LOOP
 
+
+;-------------------------------------------------------
+; ВСТУПИТЕЛЬНЫЙ ЭКРАН (КРАСИВОЕ ОФОРМЛЕНИЕ)
+;-------------------------------------------------------
+INTRO_SCREEN:
+        LEA INTRO_MSG,A1
+        MOVE.B #PRINT_STR,D0
+        TRAP #15
+        BSR ENDL
+
+        LEA PRESS_KEY_MSG,A1
+        MOVE.B #PRINT_STR,D0
+        TRAP #15
+        BSR ENDL
+
+        ; Ожидаем нажатие **любой клавиши**
+        MOVE.B #READ_NUM,D0        ; Ожидание ввода символа
+        TRAP #15                   ; Получаем символ с клавиатуры
+        RTS                        ; Возвращаемся в основное выполнение программы
+
 ;-------------------------------------------------------
 ; INITIALISE
 ;-------------------------------------------------------
 INIT:
-        MOVE.B #150,HEALTH      ; Устанавливаем здоровье равным 150
+        MOVE.B #100,HEALTH
         MOVE.B #50,ENERGY
         MOVE.B #20,FOOD
-        MOVE.B #0,DAY_COUNT
+        MOVE.B #1,DAY_COUNT     ; Начинаем с 1-го дня
         RTS
 
 ;-------------------------------------------------------
@@ -46,15 +67,22 @@ SELECT_MODE:
         LEA MODE_MSG,A1
         MOVE.B #PRINT_STR,D0
         TRAP #15
+
 READ_M:
         MOVE.B #READ_NUM,D0
         TRAP #15
         CMP.L #0,D1
-        BLT READ_M
+        BLT INVALID_INPUT   ; Если меньше 0, ошибка
         CMP.L #1,D1
-        BGT READ_M
-        MOVE.B D1,MODE
+        BGT INVALID_INPUT   ; Если больше 1, ошибка
+        MOVE.B D1,MODE      ; Сохраняем режим игры
         RTS
+
+INVALID_INPUT:
+        LEA INVALID_MODE_MSG,A1
+        MOVE.B #PRINT_STR,D0
+        TRAP #15
+        BRA READ_M          ; Повторный ввод
 
 ;-------------------------------------------------------
 ; INPUT (Выбор интенсивности дня)
@@ -83,7 +111,6 @@ BAD_IN:
 ; RESOURCE UPDATE (Логика выживания)
 ;-------------------------------------------------------
 RESOURCE_UPDATE:
-        ; 1. Трата ресурсов на основе выбора игрока (POTIONS)
         CLR.L D2
         MOVE.B POTIONS,D2    ; Берем ввод игрока (1-9)
         
@@ -99,34 +126,48 @@ RESOURCE_UPDATE:
         SUB.B #5,FOOD        ; Вычли суточную норму (5)
         BCC .FD_OK
         CLR.B FOOD
-        ; Если еда кончилась - ШТРАФ ГОЛОДА
         LEA STARVE_MSG,A1
         MOVE.B #PRINT_STR,D0
         TRAP #15
         SUB.B #10,HEALTH
 .FD_OK:
-        
-        ; Проверка на смерть
-        CMP.B #0,HEALTH
-        BLE .CHECK_GAME_OVER        ; Если здоровье 0 или ниже - конец игры
+
+        ; Проверка на смерть (если здоровье 0 или меньше)
+        TST.B HEALTH
+        BEQ GAME_OVER    ; Игра заканчивается, если здоровье = 0
+
+        RTS
+.HEALTH_OK:
         RTS
 
-.CHECK_GAME_OVER:
-        CMP.B #1,MODE            ; Если это Endless Mode
-        BEQ .ENDLESS_MODE        ; Не завершаем игру в Endless Mode, если здоровье 0
-        JMP GAME_OVER            ; Для режима Story игра заканчивается
-.ENDLESS_MODE:
-        MOVE.B #150,HEALTH       ; В Endless Mode восстанавливаем здоровье
+.LOW_FOOD:
+        CMP.B #10,FOOD      ; Если еды меньше 10
+        BGE .FD_OK_LOW      ; Пищи достаточно, пропускаем
+        LEA STARVE_MSG,A1
+        MOVE.B #PRINT_STR,D0
+        TRAP #15
+        SUB.B #15,HEALTH    ; Штраф за голод
+        BCC .FD_OK_LOW
+
+.FD_OK_LOW:
         RTS
 
 ;-------------------------------------------------------
-; EVENTS
+; EVENTS (Добавляем дополнительные события)
 ;-------------------------------------------------------
 WORLD_EVENT:
         MOVE.B #8,D0
         TRAP #15
-        ANDI.L #%11,D1       ; Шанс засухи 25% (если D1=0)
-        BNE .SKIP
+        ANDI.L #%111,D1      ; Шанс на 3 типа событий
+        CMP.L #0,D1
+        BEQ DROUGHT
+        CMP.L #1,D1
+        BEQ BASE_ATTACK
+        CMP.L #2,D1
+        BEQ RARE_RESOURCE
+        RTS
+
+DROUGHT:
         LEA DROUGHT_MSG,A1
         MOVE.B #PRINT_STR,D0
         TRAP #15
@@ -136,29 +177,33 @@ WORLD_EVENT:
 .SKIP:
         RTS
 
+BASE_ATTACK:
+        LEA BASE_ATTACK_MSG,A1
+        MOVE.B #PRINT_STR,D0
+        TRAP #15
+        SUB.B #15,HEALTH   ; Нападение на базу, потеря здоровья
+        RTS
+
+RARE_RESOURCE:
+        LEA RARE_RESOURCE_MSG,A1
+        MOVE.B #PRINT_STR,D0
+        TRAP #15
+        ADD.B #10,FOOD    ; Находка редких ресурсов (пища)
+        RTS
+
 ;-------------------------------------------------------
 ; STATUS & HUD
 ;-------------------------------------------------------
 CHECK_STATUS:
         ADD.B #1,DAY_COUNT
         TST.B HEALTH
-        BEQ .CHECK_GAME_OVER
+        BEQ GAME_OVER    ; Игра заканчивается, если здоровье = 0
 
         CMP.B #0,MODE
-        BEQ .STORY_CHECK
-        RTS
-
-.STORY_CHECK:
+        BNE .RET
         CMP.B #15,DAY_COUNT
         BGE STORY_WIN
-        RTS
-
-.CHECK_GAME_OVER:
-        CMP.B #1,MODE            ; Если это Endless Mode
-        BEQ .ENDLESS_MODE        ; Не завершаем игру в Endless Mode, если здоровье 0
-        JMP GAME_OVER            ; Для режима Story игра заканчивается
-.ENDLESS_MODE:
-        MOVE.B #150,HEALTH       ; В Endless Mode восстанавливаем здоровье
+.RET:
         RTS
 
 HUD:
@@ -203,12 +248,51 @@ HUD:
 ;-------------------------------------------------------
 ; SYSTEM
 ;-------------------------------------------------------
+;-------------------------------------------------------
+; SYSTEM
+;-------------------------------------------------------
 GAME_OVER:
         LEA GAME_OVER_MSG,A1
         MOVE.B #PRINT_STR,D0
         TRAP #15
+        
+        ; Выводим количество выжитых дней
+        LEA DAYS_SURVIVED_MSG,A1
+        MOVE.B #PRINT_STR,D0
+        TRAP #15
+        CLR.L D1
+        MOVE.B DAY_COUNT,D1
+        MOVE.B #PRINT_NUM,D0
+        TRAP #15
+        
+        ; Запрос на продолжение игры
+        LEA PLAY_AGAIN_MSG,A1
+        MOVE.B #PRINT_STR,D0
+        TRAP #15
+
+        ; Ожидаем ввода
+        MOVE.B #READ_NUM,D0
+        TRAP #15
+        
+        CMP.B #'Y',D1      ; Если 'Y' - игра продолжается
+        BEQ RESTART_GAME
+        CMP.B #'N',D1      ; Если 'N' - выходим
+        BEQ EXIT_GAME
+        
+        ; Если введен не 'Y' и не 'N', запрашиваем повторно
+        BRA GAME_OVER
+
+RESTART_GAME:
+        ; Сбросим все данные и начнем заново
+        BSR INIT
+        BSR WELCOME
+        BSR SELECT_MODE
+        BRA MAIN_LOOP
+
+EXIT_GAME:
         MOVE.B #STOP,D0
         TRAP #15
+
 
 STORY_WIN:
         LEA STORY_WIN_MSG,A1
@@ -225,24 +309,33 @@ ENDL:
         MOVEM.L (A7)+,D0/A1
         RTS
 
+
 ;-------------------------------------------------------
 ; DATA
 ;-------------------------------------------------------
 CRLF:           DC.B $0D,$0A,0
+INTRO_MSG:      DC.B '********************************************',0
+                DC.B '***  Welcome to MICROVERSE SURVIVAL!  ***',0
+                DC.B '********************************************',0
+PRESS_KEY_MSG:  DC.B 'Press ENTER to start...',0
 WELCOME_MSG:    DC.B '=== MICROVERSE SURVIVAL ===',0
 MODE_MSG:       DC.B '0:Story (15 days), 1:Endless. Choice: ',0
 POTION_MSG:     DC.B 'Choose activity level (1=Rest, 9=Hunt): ',0
 INVALID_MSG:    DC.B 'Bad input! (1-9 only)',0
+INVALID_MODE_MSG: DC.B 'Invalid mode! Please enter 0 for Story or 1 for Endless: ',0
 DROUGHT_MSG:    DC.B '>>> EVENT: DROUGHT! Food lost.',0
 STARVE_MSG:     DC.B '>>> ALERT: STARVING! HP drops.',0
+BASE_ATTACK_MSG: DC.B '>>> ALERT: Your base is under attack!',0
+RARE_RESOURCE_MSG: DC.B '>>> YOU FOUND RARE RESOURCES! +10 FOOD',0
 HEALTH_MSG:     DC.B ' HEALTH: ',0
 FOOD_MSG:       DC.B ' | FOOD: ',0
 ENERGY_MSG:     DC.B ' | ENERGY: ',0
 DAY_MSG:        DC.B '--- DAY ',0
-GAME_OVER_MSG:  DC.B $0D,$0A,'*** YOU PERISHED ***',0
+GAME_OVER_MSG:  DC.B $0D,$0A,'*** YOU PERISHED. GAME OVER :(  ***',0
 STORY_WIN_MSG:  DC.B $0D,$0A,'*** VICTORY! YOU SURVIVED! ***',0
+DAYS_SURVIVED_MSG: DC.B 'Days survived: ',0
+PLAY_AGAIN_MSG: DC.B 'Do you want to play again? (Y/N): ',0
 
-        
 HEALTH:      DS.B 1
 ENERGY:      DS.B 1
 FOOD:        DS.B 1
@@ -251,3 +344,4 @@ MODE:        DS.B 1
 POTIONS:     DS.B 1
 
         END START
+
